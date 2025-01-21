@@ -1,32 +1,36 @@
-import { NextResponse } from 'next/server';
-import { clerkClient, clerkMiddleware } from '@clerk/nextjs/server';
+import { clerkMiddleware, createRouteMatcher, auth, clerkClient} from '@clerk/nextjs/server'
+import { NextResponse } from 'next/server'
 
-// This middleware will run before the page rendering
-export default clerkMiddleware(async (req) => {
-  const { auth } = req; // Safely extract `auth` from `req`
 
-  if (auth && auth.userId) {
-    try {
-      // Fetch user data from Clerk's API
-      const user = await clerkClient.users.getUser(auth.userId);
+const isProtectedRoute = createRouteMatcher(['/dashboard(.*)', '/forum(.*)'])
 
-      // Check if the email is verified
-      const emailVerified = user?.emailAddresses?.[0]?.verification?.verified ?? false;
+export default clerkMiddleware(async (auth, req) => {
+  const { userId, redirectToSignIn } = await auth()
+  const client = await clerkClient()
 
-      if (!emailVerified) {
-        // Redirect to the verify-email page if not verified
-        return NextResponse.redirect(new URL('/verify-email', req.url));
-      }
-    } catch (error) {
-      // Handle any error that occurs while fetching user data
-      console.error("Error fetching user data from Clerk:", error);
-      return NextResponse.redirect(new URL('/sign-in', req.url));
-    }
-  } else {
-    // If no auth or userId is present, redirect to sign-in page
-    return NextResponse.redirect(new URL('/sign-in', req.url));
+  if (!userId && isProtectedRoute(req)) {
+    return redirectToSignIn()
   }
 
-  // If the user is authenticated and email is verified, allow the request to continue
-  return NextResponse.next();
-});
+  if (userId) {
+    const user = await client.users.getUser(userId)
+
+    console.log(user)
+
+    // Check if user is verified
+    const isVerified = user?.publicMetadata?.verified ?? false
+
+    console.log("Verification Status",isVerified)
+  }
+    return NextResponse.next()
+
+})
+
+export const config = {
+  matcher: [
+    // Skip Next.js internals and all static files, unless found in search params
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)',
+  ],
+}
